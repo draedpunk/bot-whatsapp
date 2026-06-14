@@ -1,0 +1,93 @@
+# ─────────────────────────────────────────────────────────────
+#  Bot de WhatsApp com IA — n8n + WAHA + Redis + Postgres
+#  Aula: API · Webhook · Docker · IA generativa
+#
+#  Como usar:
+#    1. Coloque este arquivo numa pasta vazia
+#    2. Abra o terminal nessa pasta
+#    3. Rode:  docker compose up -d
+#    4. Veja os containers:  docker compose ps
+#
+#  Portas:  WAHA 3000 · n8n 5678 · Redis 6379 · Postgres 5432
+# ─────────────────────────────────────────────────────────────
+
+services:
+  # WhatsApp HTTP API — conecta ao WhatsApp
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: waha
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Envia o webhook para o n8n sempre que chegar uma mensagem.
+      # host.docker.internal = a sua máquina, vista de dentro do container.
+      - WHATSAPP_HOOK_URL=http://host.docker.internal:5678/webhook/webhook
+      - WHATSAPP_HOOK_EVENTS=message
+      - WAHA_PRINT_QR=false
+    volumes:
+      - waha_sessions:/app/.sessions
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # n8n — orquestra a automação
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      # Banco de dados (Postgres)
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=n8n
+      - DB_POSTGRESDB_PASSWORD=n8n
+      # Permite instalar Community Nodes (n8n-nodes-waha)
+      - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      - N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+      - redis
+
+  # Redis — memória das conversas (contexto por usuário)
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: redis-server --requirepass default
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Postgres — banco de dados interno do n8n
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=n8n
+      - POSTGRES_PASSWORD=n8n
+      - POSTGRES_DB=n8n
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  waha_sessions:
+  n8n_data:
+  redis_data:
+  postgres_data:
